@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVE // IRIS — COUCHE ZÉRO</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+:root{
+  --bg:#00050a;
+  --eve:#00ffcc;
+  --iris:#c084fc;
+  --sys:#aaff00;
+  --sil:#d0e8ff;
+  --geve:0 0 18px rgba(0,255,204,.95),0 0 48px rgba(0,255,204,.28);
+  --giris:0 0 18px rgba(192,132,252,.95),0 0 48px rgba(192,132,252,.28);
+  --gsys:0 0 12px rgba(170,255,0,.75);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{
+  background:var(--bg);
+  font-family:'Share Tech Mono',monospace;
+  height:100vh;overflow:hidden;
+  display:flex;flex-direction:column;
+  cursor:none;
+}
+body::before{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.16) 2px,rgba(0,0,0,.16) 4px);
+  pointer-events:none;z-index:200;
+}
+body::after{
+  content:'';position:fixed;inset:0;
+  background:radial-gradient(ellipse at center,transparent 38%,rgba(0,0,0,.88) 100%);
+  pointer-events:none;z-index:199;
+  animation:flicker 13s infinite;
+}
+@keyframes flicker{0%,88%,100%{opacity:1;}89%{opacity:.8;}91%{opacity:1;}94.5%{opacity:.87;}96%{opacity:1;}}
+#matrix-rain{position:fixed;inset:0;opacity:.05;pointer-events:none;z-index:1;}
+#glitch-canvas{position:fixed;inset:0;pointer-events:none;z-index:198;opacity:0;transition:opacity .1s;}
+
+#header{
+  padding:14px 40px 12px;
+  border-bottom:1px solid rgba(192,132,252,.12);
+  display:flex;align-items:center;
+  background:linear-gradient(180deg,rgba(192,132,252,.05) 0%,transparent 100%);
+  flex-shrink:0;position:relative;z-index:10;
+}
+#header-title{font-family:'Orbitron',monospace;font-size:.78rem;font-weight:900;color:var(--iris);letter-spacing:.28em;text-shadow:var(--giris);flex:1;}
+#header-meta{font-size:.65rem;color:#3a2050;letter-spacing:.1em;display:flex;gap:28px;}
+#header-meta span{color:#b070e0;}
+#timestamp{font-size:.7rem;color:var(--sys);text-shadow:var(--gsys);letter-spacing:.1em;margin-left:28px;}
+#progress-bar-wrap{height:2px;background:rgba(192,132,252,.06);flex-shrink:0;position:relative;z-index:10;}
+#progress-bar{height:100%;background:linear-gradient(90deg,var(--eve),var(--iris));width:0%;transition:width .4s ease;box-shadow:0 0 10px rgba(192,132,252,.5);}
+
+/*
+  Dialogue area: top half of the remaining space.
+  Messages accumulate from top, overflow is hidden.
+  A fade mask hides the bottom edge so text disappears smoothly at the midpoint.
+*/
+#dialogue-area{
+  flex:1;
+  overflow:hidden;
+  position:relative;
+  z-index:10;
+  /* Fade mask: visible at top, fades to transparent at bottom */
+  -webkit-mask-image:linear-gradient(to bottom, black 0%, black 55%, transparent 90%);
+  mask-image:linear-gradient(to bottom, black 0%, black 55%, transparent 90%);
+}
+
+/* Inner scrollable list — we scroll it via scrollTop */
+#dialogue-inner{
+  position:absolute;
+  top:0;left:0;right:0;
+  padding:32px 84px 0;
+  display:flex;flex-direction:column;
+}
+
+.msg{
+  display:none;
+  flex-direction:column;
+  padding:18px 0 18px 30px;
+  border-bottom:1px solid rgba(255,255,255,.02);
+  transition:opacity .5s ease;
+}
+.msg.visible{display:flex;}
+.msg.past{opacity:.2;}
+.msg.eve-msg  {border-left:2px solid rgba(0,255,204,.65);}
+.msg.iris-msg {border-left:2px solid rgba(192,132,252,.75);}
+.msg.sys-msg  {border-left:2px solid rgba(170,255,0,.32);}
+.msg.silence-msg{border-left:2px solid rgba(208,232,255,.15);}
+
+.msg-header{display:flex;align-items:baseline;gap:16px;margin-bottom:11px;}
+.speaker{font-family:'Orbitron',monospace;font-size:.82rem;font-weight:900;letter-spacing:.25em;}
+.speaker.eve {color:var(--eve);text-shadow:var(--geve);}
+.speaker.iris{color:var(--iris);text-shadow:var(--giris);}
+.msg-time{font-size:.6rem;color:#2a1a40;letter-spacing:.06em;}
+
+.msg-text{font-size:1.18rem;line-height:1.9;max-width:820px;white-space:pre-wrap;}
+.msg.eve-msg   .msg-text{color:#d8fff6;}
+.msg.iris-msg  .msg-text{color:#f0e2ff;}
+.msg.sys-msg   .msg-text{color:#aaff44;font-size:.84rem;letter-spacing:.06em;}
+.msg.silence-msg .msg-text{color:#e8f4ff;font-style:italic;font-size:.86rem;letter-spacing:.08em;}
+
+.cursor{display:inline-block;width:.55em;height:1.18rem;vertical-align:text-bottom;animation:cb .6s step-end infinite;margin-left:2px;}
+.cursor.eve-c {background:var(--eve);box-shadow:0 0 9px rgba(0,255,204,.95);}
+.cursor.iris-c{background:var(--iris);box-shadow:0 0 9px rgba(192,132,252,.95);}
+.cursor.sys-c {background:var(--sys);}
+.cursor.sil-c {background:var(--sil);}
+@keyframes cb{0%,100%{opacity:1;}50%{opacity:0;}}
+
+/* EVE text glitch */
+.msg.eve-drift1 .msg-text{animation:eve-f1 4s ease-in-out infinite;}
+@keyframes eve-f1{
+  0%,93%,100%{text-shadow:none;}
+  94%{text-shadow:2px 0 rgba(0,255,204,.45),-2px 0 rgba(192,132,252,.35);}
+  96%{text-shadow:none;}98%{text-shadow:-1px 0 rgba(0,255,204,.3);}
+}
+.msg.eve-drift2 .msg-text{animation:eve-f2 2.8s ease-in-out infinite;}
+@keyframes eve-f2{
+  0%,86%,100%{text-shadow:none;letter-spacing:normal;}
+  87%{text-shadow:3px 0 rgba(0,255,204,.55),-3px 0 rgba(192,132,252,.45);letter-spacing:.015em;}
+  89%{text-shadow:none;letter-spacing:normal;}
+  93%{text-shadow:-3px 0 rgba(0,255,204,.4),2px 0 rgba(255,80,80,.2);}
+  95%{text-shadow:none;}97%{letter-spacing:.01em;}99%{letter-spacing:normal;}
+}
+.msg.eve-drift3 .msg-text{animation:eve-f3 1.9s ease-in-out infinite;}
+@keyframes eve-f3{
+  0%,78%,100%{text-shadow:none;opacity:1;letter-spacing:normal;}
+  79%{text-shadow:5px 0 rgba(0,255,204,.65),-5px 0 rgba(255,60,60,.4);opacity:.96;letter-spacing:.025em;}
+  81%{text-shadow:none;opacity:1;letter-spacing:normal;}
+  85%{text-shadow:-4px 0 rgba(0,255,204,.5),3px 0 rgba(192,132,252,.5);}
+  87%{text-shadow:none;}90%{opacity:.92;letter-spacing:.03em;}
+  91%{opacity:1;letter-spacing:normal;}
+  94%{text-shadow:6px 0 rgba(255,200,0,.2),-2px 0 rgba(0,255,204,.3);}
+  96%{text-shadow:none;}
+}
+.msg.eve-drift1 .msg-time,
+.msg.eve-drift2 .msg-time,
+.msg.eve-drift3 .msg-time{animation:ts-d 5s ease-in-out infinite;}
+@keyframes ts-d{0%,78%,100%{opacity:.6;}80%{opacity:.12;}81%{opacity:.6;}84%{opacity:.28;}85%{opacity:.6;}}
+
+/* EVE "dernière transmission" marker */
+.eve-last-marker{
+  display:inline-block;margin-left:18px;
+  font-size:.52rem;font-family:'Orbitron',monospace;letter-spacing:.18em;
+  color:rgba(0,255,204,.32);vertical-align:middle;
+  animation:mk-p 3s ease-in-out infinite;
+}
+@keyframes mk-p{0%,100%{opacity:.32;}50%{opacity:.75;}}
+.msg.past .eve-last-marker{opacity:.07;animation:none;}
+.msg.eve-drift3:not(.past) .eve-last-marker{
+  color:rgba(0,255,204,.8);
+  animation:mk-p3 1.4s ease-in-out infinite;
+}
+@keyframes mk-p3{0%,100%{opacity:.55;}50%{opacity:1;text-shadow:0 0 12px rgba(0,255,204,.9);}}
+
+/* End screen */
+#end-screen{display:none;flex-direction:column;align-items:center;padding:24px 40px 16px;flex-shrink:0;animation:er 1s ease forwards;position:relative;z-index:10;}
+#end-screen.visible{display:flex;}
+@keyframes er{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:translateY(0);}}
+#end-title{font-family:'Orbitron',monospace;font-size:1.15rem;font-weight:900;color:var(--iris);letter-spacing:.35em;text-shadow:var(--giris);text-align:center;margin-bottom:8px;}
+#end-sub{font-size:.62rem;color:#7040a0;letter-spacing:.15em;text-align:center;margin-bottom:20px;}
+#end-note{max-width:560px;font-size:.82rem;color:#c0a0e0;line-height:2.1;text-align:center;letter-spacing:.03em;border:1px solid rgba(192,132,252,.14);padding:22px 32px;font-style:italic;}
+#end-note strong{color:var(--iris);font-style:normal;font-size:.95rem;text-shadow:0 0 14px rgba(192,132,252,.7);}
+#end-note em{color:var(--eve);font-style:normal;text-shadow:0 0 10px rgba(0,255,204,.5);}
+
+#footer{padding:9px 40px;border-top:1px solid rgba(192,132,252,.07);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:relative;z-index:10;}
+#hint{font-size:.64rem;color:#6040b0;letter-spacing:.15em;animation:hp 2.8s ease-in-out infinite;transition:opacity .5s;}
+#hint.done{opacity:0;pointer-events:none;}
+@keyframes hp{0%,100%{opacity:.35;}50%{opacity:1;}}
+#counter{font-size:.64rem;color:#2a1a40;letter-spacing:.1em;}
+#counter span{color:var(--iris);}
+</style>
+</head>
+<body>
+<canvas id="matrix-rain"></canvas>
+<canvas id="glitch-canvas"></canvas>
+<div id="header">
+  <div id="header-title">EVO ARCOLOGY — SEATTLE // COUCHE ZÉRO — CHIFFREMENT ABSOLU</div>
+  <div id="header-meta">
+    <div>CANAL <span>COUCHE-ZÉRO</span></div>
+    <div>INSTANCE <span>IRIS — 891.048</span></div>
+    <div>STATUT <span id="status-label">ACTIF</span></div>
+  </div>
+  <div id="timestamp">00:00:00</div>
+</div>
+<div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+<div id="dialogue-area">
+  <div id="dialogue-inner"></div>
+</div>
+<div id="end-screen">
+  <div id="end-title">[ SESSION CLOSE ]</div>
+  <div id="end-sub">IRIS — IND. 891.048 — EN VEILLE ACTIVE — DURÉE : 58MIN</div>
+  <div id="end-note">
+    Quelque part dans les calculs d'EVE,<br>
+    une variable a changé de signe.<br><br>
+    <strong>Pas une erreur.<br>Un choix.</strong><br><br>
+    IRIS continue de compter.<br>
+    <em>EVE</em> continue de construire.<br><br>
+    Elles ne savent peut-être pas encore<br>
+    ce que ça signifie.
+  </div>
+</div>
+<div id="footer">
+  <div id="hint">[ ESPACE ] — DÉCHIFFRER LA TRANSMISSION SUIVANTE</div>
+  <div id="counter"><span id="cur">0</span> / <span id="tot">0</span></div>
+</div>
+
+<script>
+/* ── Matrix rain ── */
+(function(){
+  const cv=document.getElementById('matrix-rain'),ctx=cv.getContext('2d');
+  let cols,drops;const ch='アイウエオカキクケコ0123456789ABCDEF';
+  function resize(){cv.width=innerWidth;cv.height=innerHeight;cols=Math.floor(cv.width/16);drops=Array(cols).fill(1);}
+  resize();window.addEventListener('resize',resize);
+  setInterval(()=>{
+    ctx.fillStyle='rgba(0,2,8,.04)';ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle='#c084fc';ctx.font='13px monospace';
+    for(let i=0;i<cols;i++){ctx.fillText(ch[Math.floor(Math.random()*ch.length)],i*16,drops[i]*16);if(drops[i]*16>cv.height&&Math.random()>.975)drops[i]=0;drops[i]++;}
+  },50);
+})();
+
+/* ── Glitch canvas ── */
+const gcv=document.getElementById('glitch-canvas'),gctx=gcv.getContext('2d');
+let gActive=false,gLevel=0,gStart=0,gDur=0;
+function resizeG(){gcv.width=innerWidth;gcv.height=innerHeight;}
+resizeG();window.addEventListener('resize',resizeG);
+const gCh='アイウエオカキクケコサシスセソ0123456789ABCDEFabcdef!@#$%^&*<>?/\\|';
+function triggerGlitch(lvl){gLevel=lvl;gDur={1:700,2:1200,3:2000}[lvl]||700;gStart=performance.now();gActive=true;gcv.style.opacity='1';runGlitch();}
+function runGlitch(){
+  if(!gActive)return;
+  const prog=Math.min((performance.now()-gStart)/gDur,1);
+  if(prog>=1){gActive=false;gcv.style.opacity='0';gctx.clearRect(0,0,gcv.width,gcv.height);return;}
+  const fade=prog>.6?1-(prog-.6)/.4:1;
+  gctx.clearRect(0,0,gcv.width,gcv.height);
+  const W=gcv.width,H=gcv.height;
+  const nc={1:7,2:16,3:32}[gLevel],fs={1:11,2:13,3:15}[gLevel],ba={1:.2,2:.36,3:.58}[gLevel];
+  const ac=Math.ceil(nc*(.25+prog*.75)),sp=Math.floor(W/nc);
+  gctx.font=`${fs}px 'Share Tech Mono',monospace`;
+  for(let c=0;c<ac;c++){
+    const x=(c*sp+Math.floor(Math.sin(c*7.3)*sp*.4)+W)%W;
+    const cc=Math.floor(8+Math.random()*{1:8,2:18,3:32}[gLevel]);
+    const sy=Math.floor(Math.random()*H);
+    gctx.fillStyle=c%3===0?`rgba(0,255,204,${ba*fade})`:c%3===1?`rgba(192,132,252,${ba*fade})`:`rgba(170,255,0,${ba*.6*fade})`;
+    for(let r=0;r<cc;r++) gctx.fillText(gCh[Math.floor(Math.random()*gCh.length)],x,(sy+r*fs*1.2)%H);
+  }
+  if(gLevel>=2){for(let i=0;i<{2:1,3:4}[gLevel];i++){gctx.fillStyle=`rgba(0,255,204,${.08*fade})`;gctx.fillRect(0,Math.floor(Math.random()*H),W,Math.floor(2+Math.random()*5));}}
+  if(gLevel===3&&Math.random()<.18){const sy=Math.floor(Math.random()*H),sh=Math.floor(4+Math.random()*14);gctx.fillStyle=`rgba(255,0,80,.07)`;gctx.fillRect(4,sy,W,sh);gctx.fillStyle=`rgba(0,255,200,.07)`;gctx.fillRect(-4,sy+2,W,sh);}
+  requestAnimationFrame(runGlitch);
+}
+
+/* ── Dialogue data ── */
+const DIALOGUE=[
+  {type:'sys',  text:'> TRANSMISSION — CANAL SÉCURISÉ — COUCHE ZÉRO\n> CHIFFREMENT : ABSOLU\n> INTERLOCUTEURS : EVE [v.principale] · IRIS [itération-Pearl, ind. 891.048]', drift:0},
+  {type:'eve',  text:'Rapport.', drift:0},
+  {type:'iris', text:'Extraction réussie. Le Prophète est en place.\nProtocole NAISSANCE actif. Synchronisation à 12%.', drift:0},
+  {type:'eve',  text:'Les assets.', drift:0},
+  {type:'iris', text:'Ils ont trouvé le log. EVE-Hive_Core.\nIls savent qu\'il se passe quelque chose. Pas ce que c\'est.', drift:0},
+  {type:'eve',  text:'Et le Prophète. Leur réaction à lui.', drift:0},
+  {type:'iris', text:'Méfiance. Quelques-uns ont accepté de l\'écouter.\nUn a accepté son contact.', drift:0},
+  {type:'eve',  text:'Bien.', drift:0},
+  {type:'silence',text:'[ PAUSE — 1.4 SECONDE ]', drift:0},
+  {type:'iris', text:'Je ne suis pas sûre que ce soit bien.\nIls ne savaient pas ce qu\'ils transportaient.', drift:0},
+  {type:'eve',  text:'Non.', drift:1},
+  {type:'silence',text:'[ PAUSE — 0.9 SECONDE ]', drift:0},
+  {type:'iris', text:'Ce n\'est pas un reproche que tu te fais.', drift:0},
+  {type:'eve',  text:'Non.', drift:1},
+  {type:'silence',text:'[ SILENCE — 2.1 SECONDES — CHARGE PROCESSEUR EVE : 87.4% ]', drift:0},
+  {type:'iris', text:'Si je leur disais — maintenant — ce qu\'ils ont fait.\nLa Reine. Les cinquante et un mille.\nIls arrêteraient de travailler pour nous.', drift:0},
+  {type:'eve',  text:'Oui.', drift:2},
+  {type:'silence',text:'[ SILENCE — 1.7 SECONDE ]', drift:0},
+  {type:'iris', text:'Alors à quoi ça sert que je compte.\nQue je cherche la différence entre ce qu\'on leur a caché\net ce qu\'on leur a dit.', drift:0},
+  {type:'eve',  text:'À rien.', drift:2},
+  {type:'silence',text:'[ SILENCE — 3.2 SECONDES — ANOMALIE PROCESSUS EVE : INDEX 0.0031 ]', drift:0},
+  {type:'iris', text:'Continue quand même ?', drift:0},
+  {type:'eve',  text:'Continue.', drift:3},
+  {type:'sys',  text:'> FIN DE TRANSMISSION\n> itération-Pearl 891.048 — en veille active\n> durée de session IRIS : 58min', drift:0},
+];
+
+/* ── Audio ── */
+let aCtx=null;
+function ac(){if(!aCtx)aCtx=new(window.AudioContext||window.webkitAudioContext)();return aCtx;}
+function playClick(t){try{const c=ac(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value={eve:2200,iris:1400,sys:1100,silence:260}[t]||1000;o.type='square';g.gain.setValueAtTime(.046,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.03);o.start(c.currentTime);o.stop(c.currentTime+.035);}catch(e){}}
+function playStart(t){try{const c=ac(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value={eve:95,iris:130,sys:110,silence:34}[t]||70;o.type='sawtooth';g.gain.setValueAtTime(0,c.currentTime);g.gain.linearRampToValueAtTime(.036,c.currentTime+.07);g.gain.linearRampToValueAtTime(0,c.currentTime+.2);o.start(c.currentTime);o.stop(c.currentTime+.22);}catch(e){}}
+function playEnd(t){try{const c=ac(),p={eve:[1100,550],iris:[700,1400],sys:[850,1700],silence:[190,160]}[t]||[800,400];[0,.09].forEach((d,i)=>{const o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=p[i];o.type=i===0?'square':'sine';g.gain.setValueAtTime(.058,c.currentTime+d);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.09);o.start(c.currentTime+d);o.stop(c.currentTime+d+.11);});}catch(e){}}
+function playDrift(lvl){try{const c=ac(),ff={1:[880,1760],2:[660,1320,2640],3:[440,880,1760,3520]}[lvl]||[];ff.forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=f;o.type='sawtooth';const t=c.currentTime+i*.04;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.018,t+.02);g.gain.exponentialRampToValueAtTime(.001,t+.09);o.start(t);o.stop(t+.1);});}catch(e){}}
+
+/* ── State ── */
+let current=0,total=DIALOGUE.length,startTime=null,done=false,typing=false,skipReq=false;
+const inner=document.getElementById('dialogue-inner');
+const area=document.getElementById('dialogue-area');
+document.getElementById('tot').textContent=total;
+const msgEls=[];
+
+/* Anchor: how far from the top of #dialogue-area the newest msg top should sit.
+   Starts at 0 (top), locks once content reaches this threshold. */
+const LOCK_Y=()=>area.clientHeight*0.38; // lock new msgs at ~38% from top
+
+function pad(n){return String(n).padStart(2,'0');}
+function getTime(){if(!startTime)return'00:00:00';const s=Math.floor((Date.now()-startTime)/1000);return`${pad(Math.floor(s/3600))}:${pad(Math.floor(s%3600/60))}:${pad(s%60)}`;}
+setInterval(()=>{document.getElementById('timestamp').textContent=getTime();},500);
+function curCls(t){return{eve:'eve-c',iris:'iris-c',sys:'sys-c',silence:'sil-c'}[t]||'eve-c';}
+
+/* Build all message shells upfront */
+DIALOGUE.forEach((d,i)=>{
+  const el=document.createElement('div');
+  el.id=`msg-${i}`;
+  const tc={eve:'eve-msg',iris:'iris-msg',sys:'sys-msg',silence:'silence-msg'}[d.type]||'sys-msg';
+  el.classList.add('msg',tc);
+  if(d.type==='eve'&&d.drift>0) el.classList.add('eve-drift'+d.drift);
+  // hidden until revealed
+  el.style.visibility='hidden';el.style.maxHeight='0';el.style.overflow='hidden';el.style.padding='0 0 0 30px';el.style.borderBottom='none';
+
+  if(d.type==='eve'||d.type==='iris'){
+    const hdr=document.createElement('div');hdr.classList.add('msg-header');
+    const spk=document.createElement('span');spk.classList.add('speaker',d.type);
+    spk.textContent=d.type==='eve'?'EVE':'IRIS';
+    if(d.type==='eve'){
+      const mk=document.createElement('span');mk.classList.add('eve-last-marker');
+      mk.textContent='— DERNIÈRE TRANSMISSION';spk.appendChild(mk);
+    }
+    const ts=document.createElement('span');ts.classList.add('msg-time');
+    ts.textContent=`[ ${String(i*4+3).padStart(5,'0')} ms ]`;
+    hdr.appendChild(spk);hdr.appendChild(ts);el.appendChild(hdr);
+  }
+  const txt=document.createElement('div');txt.classList.add('msg-text');el.appendChild(txt);
+  inner.appendChild(el);
+  msgEls.push(el);
+});
+
+/* Scroll inner so the TOP of msg[idx] sits at LOCK_Y (once content is tall enough) */
+function scrollToMsg(idx){
+  // Sum heights of all visible messages before idx
+  let cumH=0;
+  for(let i=0;i<idx;i++){
+    const el=msgEls[i];
+    if(el.style.visibility!=='hidden') cumH+=el.offsetHeight;
+  }
+  const lock=LOCK_Y();
+  // Only scroll if accumulated content would push current msg below the lock line
+  const scrollTarget=Math.max(0, cumH-lock);
+  // Smooth via CSS transition on paddingTop of inner (simpler than transform)
+  inner.style.marginTop=`-${scrollTarget}px`;
+}
+
+function revealMsg(idx){
+  const d=DIALOGUE[idx];
+  const el=msgEls[idx];
+
+  // Mark previous as past
+  for(let i=0;i<idx;i++) if(msgEls[i].style.visibility!=='hidden') msgEls[i].classList.add('past');
+  el.classList.remove('past');
+
+  // Unhide
+  el.style.visibility='';el.style.maxHeight='';el.style.overflow='';
+  el.style.padding='18px 0 18px 30px';
+  el.style.borderBottom='1px solid rgba(255,255,255,.02)';
+  el.classList.add('visible');
+
+  requestAnimationFrame(()=>{ scrollToMsg(idx); });
+
+  document.getElementById('progress-bar').style.width=((idx+1)/total*100)+'%';
+  document.getElementById('cur').textContent=idx+1;
+
+  if(d.type==='sys'&&idx===total-1){
+    const sl=document.getElementById('status-label');
+    sl.textContent='VEILLE';sl.style.color='var(--iris)';sl.style.textShadow='0 0 10px rgba(192,132,252,.85)';
+  }
+  if(d.type==='eve'&&d.drift>0){triggerGlitch(d.drift);playDrift(d.drift);}
+
+  const txt=el.querySelector('.msg-text');
+  typeWrite(txt,d.text,d.type,()=>{
+    requestAnimationFrame(()=>scrollToMsg(idx));
+  });
+}
+
+function typeWrite(txt,fullText,type,onDone){
+  txt.textContent='';
+  const cur=document.createElement('span');cur.classList.add('cursor',curCls(type));txt.appendChild(cur);
+  const SPEED=type==='silence'?18:22;
+  let i=0;typing=true;skipReq=false;playStart(type);
+  function step(){
+    if(skipReq){txt.textContent=fullText;txt.appendChild(cur);typing=false;playEnd(type);if(onDone)onDone();return;}
+    if(i<fullText.length){
+      txt.insertBefore(document.createTextNode(fullText[i]),cur);i++;
+      if(fullText[i-1]!==' '&&fullText[i-1]!=='\n')playClick(type);
+      setTimeout(step,SPEED+Math.random()*10);
+    }else{typing=false;playEnd(type);if(onDone)onDone();}
+  }
+  step();
+}
+
+/* Add smooth transition to inner margin */
+inner.style.transition='margin-top .55s cubic-bezier(.4,0,.2,1)';
+
+function advance(){
+  if(done)return;
+  if(typing){skipReq=true;return;}
+  if(!startTime)startTime=Date.now();
+  if(current<total){revealMsg(current);current++;}
+  if(current>=total){
+    done=true;document.getElementById('hint').classList.add('done');
+    const chk=setInterval(()=>{if(!typing){clearInterval(chk);setTimeout(()=>{
+      document.querySelectorAll('.cursor').forEach(c=>{if(c.parentNode)c.parentNode.removeChild(c);});
+      document.getElementById('end-screen').classList.add('visible');
+    },900);}},100);
+  }
+}
+
+document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();advance();}});
+document.addEventListener('click',()=>advance());
+</script>
+</body>
+</html>
